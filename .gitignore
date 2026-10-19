@@ -1,0 +1,6 @@
+logs/
+__pycache__/
+state/
+scratch/
+.DS_Store
+node_modules/

@@ -1,0 +1,1 @@
+{ "name": "stable-mcp-listing", "version": "0.1.0", "description": "Gives a session that starts while MCP servers are still connecting the tool listing of the last fully connected start, so its startup context hits the prompt cache", "author": { "name": "Adam Banko" }, "license": "MIT", "repository": "https://github.com/cassus/startup-cache-proxy" }

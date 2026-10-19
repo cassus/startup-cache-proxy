@@ -1,0 +1,8 @@
+#!/bin/zsh
+# Development proxy on port 8081, run from this working tree (hot-reloads on save).
+# The live service runs from the installed copy (see deploy), so edits here never touch it.
+# State and logs go to ./state, separate from the live ~/.local/state/startup-cache-proxy.
+# Point a test session at it: ANTHROPIC_BASE_URL=http://localhost:8081 (see run-reorder-test.sh).
+cd "${0:A:h}"
+export REORDER=1 LOG=1 PYTHONUNBUFFERED=1 STARTUP_CACHE_PROXY_STATE=$PWD/state
+exec mitmdump -q --mode reverse:https://api.anthropic.com --listen-host 127.0.0.1 -p 8081 -s reorder.py

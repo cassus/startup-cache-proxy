@@ -1,0 +1,46 @@
+#!/bin/zsh
+# Install the committed HEAD of this repo as the live proxy, in one step.
+#   code:     ~/.local/share/startup-cache-proxy   (read-only copy, replaced on every deploy; never edit it)
+#   state:    ~/.local/state/startup-cache-proxy   (request logs with LOG=1; kept across deploys)
+#   service:  ~/Library/LaunchAgents/com.github.cassus.startup-cache-proxy.plist, generated from startup-cache-proxy.plist
+# Addon-only changes are hot-reloaded by mitmproxy (no restart, connections stay up).
+# A changed wrapper restarts the service with kickstart -k; a changed plist reloads it.
+# Either way the proxy is down for about a second, so in-flight requests may fail once.
+set -e
+cd "${0:A:h}"
+DEST=~/.local/share/startup-cache-proxy
+PLIST=~/Library/LaunchAgents/com.github.cassus.startup-cache-proxy.plist
+SVC=gui/$UID/com.github.cassus.startup-cache-proxy
+[[ -z $(git status --porcelain --untracked-files=no) ]] || { echo "Uncommitted changes; commit first." >&2; exit 1; }
+
+old_wrapper=$(cat $DEST/startup-cache-proxy 2>/dev/null || true)
+tmp=$(mktemp -d)
+git archive HEAD | tar -x -C $tmp
+mkdir -p $DEST ~/.local/state/startup-cache-proxy
+chmod -R u+w $DEST
+# rsync replaces each file by rename, so mitmproxy never reads a half-written addon.
+rsync -a --delete $tmp/ $DEST/
+rm -rf $tmp
+git rev-parse HEAD > $DEST/VERSION
+chmod -R a-w $DEST/*
+echo "Installed $(git log -1 --format='%h %s')"
+
+new_plist=$(sed "s|__HOME__|$HOME|g" startup-cache-proxy.plist)
+if [[ ! -f $PLIST || $(cat $PLIST) != $new_plist ]]; then
+  launchctl bootout $SVC 2>/dev/null || true
+  # bootout returns before the service is gone; bootstrap fails (error 5) until it is.
+  while launchctl print $SVC &>/dev/null; do sleep 0.2; done
+  rm -f $PLIST && print -r -- $new_plist > $PLIST
+  launchctl bootstrap gui/$UID $PLIST
+  echo "Service (re)loaded."
+elif ! launchctl print $SVC &>/dev/null; then
+  launchctl bootstrap gui/$UID $PLIST
+  echo "Service loaded."
+elif [[ $old_wrapper != $(cat startup-cache-proxy) ]]; then
+  launchctl kickstart -k $SVC
+  echo "Service restarted."
+else
+  echo "Addon hot-reloaded."
+fi
+for i in {1..25}; do lsof -iTCP:8080 -sTCP:LISTEN &>/dev/null && { echo "Listening on 8080."; exit 0; }; sleep 0.2; done
+echo "Not listening on 8080; see ~/Library/Logs/startup-cache-proxy.log" >&2; exit 1

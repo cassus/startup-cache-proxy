@@ -1,0 +1,8 @@
+#!/bin/zsh
+# Claude Code prompt-cache proxy, run by the startup-cache-proxy launch agent.
+# A named script so macOS Login Items shows "startup-cache-proxy", not mitmproxy's signer.
+cd "${0:A:h}"
+export REORDER=1 PYTHONUNBUFFERED=1
+# launchd's PATH lacks Homebrew (Apple silicon, then Intel).
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+exec mitmdump -q --mode reverse:https://api.anthropic.com --listen-host 127.0.0.1 -p 8080 -s reorder.py
