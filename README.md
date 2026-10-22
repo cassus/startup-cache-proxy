@@ -11,6 +11,36 @@ This repo has two independent parts:
 
 Result in my tests: a second session with a different first prompt now reuses about 48k tokens from the cache and pays to write almost none. With the mod, this also holds when you start typing before all MCP servers have connected.
 
+## How it works
+
+A cache hit needs the whole request, from the start up to a cache breakpoint (▲), to be byte-identical to an earlier one. The first difference makes that breakpoint and every later one miss. This is the first request of a new session, as Claude Code 2.1.308 sends it, and where the proxy moves each part:
+
+| Without proxy | With proxy | Block         | Contents                                                                                               | Changes when                                    |
+| ------------- | ---------- | ------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| 1             | 1          | `tools`       | Built-in tool definitions (Agent, Bash, Read, …)                                                       | Claude Code version, tool settings              |
+| 2             | 2          | `system[0]`   | Billing header (`cc_version=…`)                                                                        | Claude Code version                             |
+| 3             | 3          | `system[1]`   | "You are Claude Code, …"                                                                               | never                                           |
+| 4 ▲1          | 4 ▲1       |               | *Cache breakpoint 1*                                                                                   |                                                 |
+| 5             | 5          | `system[2]`   | Main system prompt, including the project's memory path (`~/.claude/projects/-Users-me-myapp/memory/`) | **repo**, Claude Code version                   |
+| 6 ▲2          | 6 ▲2       |               | *Cache breakpoint 2*                                                                                   |                                                 |
+| 7             | 7          | `messages[0]` | System reminder: global and project CLAUDE.md (with its path), memory index                            | repo, CLAUDE.md or memory edits                 |
+| 8             | 8          | `messages[0]` | System reminder: user email; git status if `includeGitInstructions` is on                              | **every commit or file change** (git status on) |
+| 9             | 18         | `messages[0]` | **Your first prompt**                                                                                  | **every session**                               |
+| 10            | 16         | `messages[1]` | SessionStart hook output                                                                               | whatever your hooks print                       |
+| 11            | 9          | `messages[1]` | `# Environment` (working directory, platform, model)                                                   | repo                                            |
+| 12            | 13         | `messages[1]` | MCP tool names, plus the "MCP servers still connecting" note if you type before they connect           | MCP server changes                              |
+| 13            | 10         | `messages[1]` | Agent types                                                                                            | agent changes                                   |
+| 14            | 14         | `messages[1]` | MCP server instructions                                                                                | MCP server changes                              |
+| 15            | 11         | `messages[1]` | Skills list                                                                                            | skill changes                                   |
+|               | 12 ▲3      |               | *Cache breakpoint 3 (with proxy)*                                                                      |                                                 |
+|               | 15 ▲4      |               | *Cache breakpoint 4 (with proxy)*                                                                      |                                                 |
+| 16            | 17         | `messages[1]` | Today's date                                                                                           | every day                                       |
+| 17 ▲3         |            |               | *Cache breakpoint 3 (without proxy)*                                                                   |                                                 |
+
+Each numbered column is the order of the request, breakpoints included: without the proxy, read the first column top to bottom; with it, sort by the second. `messages[1]` is the startup context, one block that Claude Code sends after your prompt. Without the proxy, ▲3 misses in every new session, because your first prompt comes before the startup context. The proxy moves everything except MCP tools added later into the first message: the stable sections (9–11) and ▲3, then the MCP parts (13–14, separate because they change when your MCP servers change) and ▲4, then hook output and date (16–17), then your prompt (18).
+
+Measured in small test repos: without the proxy, a new session in the same repo reads ~15k (▲2) and writes ~10k; with it, it reads ~25k and writes nothing, even when the hook output changes every session. Across repos the proxy can't help: the repo path is in the main system prompt (▲2), so each repo has its own cache entry, and only ▲1 (~10k) is shared. Your own numbers depend on your CLAUDE.md, memory, skills and MCP servers: on my real setup a new session reuses about 48k.
+
 ## Use
 
 Get the code and mitmproxy, then start the proxy:
@@ -24,10 +54,35 @@ REORDER=1 mitmdump -q --mode reverse:https://api.anthropic.com --listen-host 127
 Then tell Claude Code to send its requests through it, in `~/.claude/settings.json`:
 
 ```json
-{ "env": { "ANTHROPIC_BASE_URL": "http://localhost:8080", "ENABLE_TOOL_SEARCH": "true" } }
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:8080",
+    "ENABLE_TOOL_SEARCH": "true"
+  }
+}
 ```
 
 While this setting is on, Claude Code only works if the proxy is running. Remove `ANTHROPIC_BASE_URL` to go direct again. `ENABLE_TOOL_SEARCH=true` makes Claude Code list MCP tools by name and load their details only when needed; the proxy expects that layout.
+
+Also turn off Claude Code's git status snapshot: add `includeGitInstructions` as a top-level key in the same file, next to `env`:
+
+```json
+{
+  "env": { … },
+  "includeGitInstructions": false
+}
+```
+
+The snapshot (branch, `git status`, recent commits) sits ahead of the stable startup context, so every commit or file change makes the next new session write the startup context again (about 10k tokens in my tests). The setting also removes Claude Code's built-in git instructions (how to commit, use `gh`, and so on). If you rely on them, copy the parts you want into your `~/.claude/CLAUDE.md`, which stays the same between sessions and is served from the cache. For example:
+
+```markdown
+## Git
+
+- Interactive flags (`-i`, e.g. `git rebase -i`, `git add -i`) are not supported.
+- Use the `gh` CLI for GitHub operations (PRs, issues, API).
+- Commit or push only when the user asks. If on the default branch, branch first.
+- No startup git status in context: run `git status` / `git log` yourself when it matters.
+```
 
 Your login or API key passes through unchanged, and the proxy doesn't save your requests. It prints a line when it can't reorder a request, and for an error from the API on a reordered request, the first 300 characters of the error text. Run as a background service (below), these lines go to `~/Library/Logs/startup-cache-proxy.log`. For debugging, `LOG=1` writes every request and response in full to `$STARTUP_CACHE_PROXY_STATE/logs` (default `~/.local/state/startup-cache-proxy`), readable only by you. These logs grow by megabytes per session and contain your conversations, so turn it off when done and delete them.
 
