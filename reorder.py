@@ -46,10 +46,13 @@ def is_messages(flow):
 def split_startup(text):
     """Return {stable, inline, listing, instructions, volatile} text, or None if a section is not recognised."""
     heads = STABLE + (INLINE, LISTING, INSTRUCTIONS, DATE)
+    # Without SessionStart hook output the text starts with a section heading:
+    # a leading newline lets it match like the others. It is cut off again below.
+    text = "\n" + text
     starts = sorted({m for h in heads for m in [text.find("\n" + h)] if m >= 0})
     if not starts or not all(("\n" + h) in text for h in STABLE):
         return None
-    out = {"stable": "", "inline": "", "listing": "", "instructions": "", "volatile": text[: starts[0] + 1]}
+    out = {"stable": "", "inline": "", "listing": "", "instructions": "", "volatile": text[1 : starts[0] + 1]}
     for a, b in zip(starts, starts[1:] + [len(text) - 1]):
         part = text[a + 1 : b + 1]
         if part.startswith(STABLE):
