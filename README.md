@@ -13,6 +13,8 @@ Result in my tests: a second session with a different first prompt now reuses ab
 
 ## How it works
 
+![First request of a new session, without and with the proxy](docs/startup-cache.svg)
+
 A cache hit needs the whole request, from the start up to a cache breakpoint (▲), to be byte-identical to an earlier one. The first difference makes that breakpoint and every later one miss. This is the first request of a new session, as Claude Code 2.1.308 sends it, and where the proxy moves each part:
 
 | Without proxy | With proxy | Block         | Contents                                                                                               | Changes when                                    |
