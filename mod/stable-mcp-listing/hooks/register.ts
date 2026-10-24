@@ -120,14 +120,14 @@ export const register: Register = (on) => {
       if (!real.deferred.includes(CONNECTING) && real.deferred.includes('mcp__')) completeListing = real.deferred
       if (!saved || saved === real.deferred) return next(e)
       if (!onlyNotYetConnected(real.deferred, saved)) {
-        $.ui.log('stable-mcp-listing: tool listing differs from the snapshot in more than missing servers, sent as is')
+        $.ui.log('tool listing differs from the snapshot in more than missing servers, sent as is')
         return next(e)
       }
       substituted = true
       savedTools = toolNames(saved)
       const have = new Set(serversOf(toolNames(real.deferred)))
       const filled = serversOf(savedTools).filter((s) => !have.has(s))
-      $.ui.log(`stable-mcp-listing: filled in ${filled.length} missing MCP server(s) from the snapshot: ${filled.join(', ')}`)
+      $.ui.log(`filled in ${filled.length} missing MCP server(s) from the snapshot: ${filled.join(', ')}`)
       return next({ ...e, text: real.loaded + saved })
     }
 
@@ -149,11 +149,11 @@ export const register: Register = (on) => {
         await $.store.set(LISTING, completeListing)
         await $.store.set(INSTRUCTIONS, e.text)
         const servers = serversOf(toolNames(completeListing))
-        $.ui.log(`stable-mcp-listing: saved full snapshot of ${servers.length} MCP servers: ${servers.join(', ')}`)
+        $.ui.log(`saved full snapshot of ${servers.length} MCP servers: ${servers.join(', ')}`)
       }
       if (substituted && saved && coveredBy(e.text, saved)) {
         savedInstructions = saved
-        $.ui.log('stable-mcp-listing: MCP instructions taken from the snapshot')
+        $.ui.log('MCP instructions taken from the snapshot')
         return next({ ...e, text: saved })
       }
       return next(e)
