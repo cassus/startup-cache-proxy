@@ -103,10 +103,9 @@ def reorder(body):
     cache = system[-1].get("cache_control") if isinstance(system, list) and system else None
     if not cache:
         return False
-    for b in context + startup + prompt:
-        b.pop("cache_control", None)
-    for s in body.get("system", [])[:-1]:
-        s.pop("cache_control", None)
+    unmark(context + startup + prompt)
+    unmark(body.get("system", [])[:-1])
+    unmark(body.get("tools", []))
     wrap = lambda t: {"type": "text", "text": f"<system-reminder>\n{t}</system-reminder>"}
     blocks = [{**wrap(parts["stable"]), "cache_control": cache}, {**wrap(parts["inline"] + parts["listing"] + parts["instructions"]), "cache_control": cache}, wrap(parts["volatile"])]
     tools = startup[1:]
@@ -115,17 +114,33 @@ def reorder(body):
     # The last message with content gets the breakpoint: after a mid-session
     # /effort change Claude Code ends the request with an empty system message.
     last = next(m for m in reversed(body["messages"]) if m["content"])
-    # At most 4 breakpoints: last system block + our 2 + the last message.
+    # At most 4 breakpoints: last system block + our 2 + one on the last message.
     for m in rest:
-        if m is not last and isinstance(m["content"], list):
-            for b in m["content"]:
-                b.pop("cache_control", None)
+        if isinstance(m["content"], list):
+            unmark(m["content"])
     if isinstance(last["content"], str):
         # Typed follow-ups come as a plain string; a breakpoint needs a block.
         last["content"] = [{"type": "text", "text": last["content"]}]
-    if not any("cache_control" in b for b in last["content"]):
-        last["content"][-1]["cache_control"] = cache
+    if last is body["messages"][0]:
+        return True  # our own 2 breakpoints already end there
+    # Thinking blocks and empty text can't carry a breakpoint. With no
+    # block that can, 3 breakpoints are still valid.
+    for b in reversed(last["content"]):
+        if b.get("type") in MARKABLE and (b["type"] != "text" or b.get("text")):
+            b["cache_control"] = cache
+            break
     return True
+
+
+MARKABLE = ("text", "image", "document", "tool_use", "tool_result", "search_result")
+
+
+def unmark(blocks):
+    """Remove cache breakpoints from blocks, including those nested in tool results."""
+    for b in blocks:
+        b.pop("cache_control", None)
+        if isinstance(b.get("content"), list):
+            unmark(b["content"])
 
 
 last_warning = 0.0
