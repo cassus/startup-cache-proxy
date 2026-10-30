@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
 STATE = Path(os.environ.get("STARTUP_CACHE_PROXY_STATE", "~/.local/state/startup-cache-proxy")).expanduser()
@@ -150,7 +151,11 @@ def request(flow):
         body = json.loads(flow.request.content)
         done = reorder(body)
     except Exception as e:
-        log(f"REORDER: failed ({e!r}), sent unchanged")
+        tb = traceback.extract_tb(e.__traceback__)[-1]
+        log(f"REORDER: failed ({e!r} at line {tb.lineno}: {tb.line}), sent unchanged")
+        if os.environ.get("LOG"):
+            # The request as received, to reproduce the failure offline.
+            (STATE / "failed.json").write_bytes(flow.request.content)
         warn("The cache proxy hit an error and sent a request unchanged. Sessions work, but new sessions may not reuse the cache.")
         return
     if done:
