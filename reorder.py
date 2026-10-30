@@ -110,12 +110,15 @@ def reorder(body):
     blocks = [{**wrap(parts["stable"]), "cache_control": cache}, {**wrap(parts["inline"] + parts["listing"] + parts["instructions"]), "cache_control": cache}, wrap(parts["volatile"])]
     tools = startup[1:]
     rest = msgs[2:]
-    # At most 4 breakpoints: last system block + our 2 + the last message.
-    for m in rest[:-1]:
-        for b in m["content"] if isinstance(m["content"], list) else []:
-            b.pop("cache_control", None)
     body["messages"] = [{"role": "user", "content": context + blocks + prompt}] + ([{"role": "system", "content": tools}] if tools else []) + rest
-    last = body["messages"][-1]
+    # The last message with content gets the breakpoint: after a mid-session
+    # /effort change Claude Code ends the request with an empty system message.
+    last = next(m for m in reversed(body["messages"]) if m["content"])
+    # At most 4 breakpoints: last system block + our 2 + the last message.
+    for m in rest:
+        if m is not last and isinstance(m["content"], list):
+            for b in m["content"]:
+                b.pop("cache_control", None)
     if isinstance(last["content"], str):
         # Typed follow-ups come as a plain string; a breakpoint needs a block.
         last["content"] = [{"type": "text", "text": last["content"]}]
