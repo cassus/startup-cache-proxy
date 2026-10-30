@@ -3,6 +3,9 @@
 # A named script so macOS Login Items shows "startup-cache-proxy", not mitmproxy's signer.
 cd "${0:A:h}"
 export REORDER=1 PYTHONUNBUFFERED=1
+# Optional local settings such as DUMP_ERRORS=1: a zsh file of VAR=value lines (sourced).
+env_file="${XDG_CONFIG_HOME:-$HOME/.config}/startup-cache-proxy/env"
+if [[ -f $env_file ]]; then set -a; source "$env_file"; set +a; fi
 # launchd's PATH lacks Homebrew (Apple silicon, then Intel).
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 exec mitmdump -q --mode reverse:https://api.anthropic.com --listen-host 127.0.0.1 -p 8080 -s reorder.py

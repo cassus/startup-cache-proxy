@@ -88,6 +88,8 @@ The snapshot (branch, `git status`, recent commits) sits ahead of the stable sta
 
 Your login or API key passes through unchanged, and the proxy doesn't save your requests. It prints a line when it can't reorder a request, and for an error from the API on a reordered request, the first 300 characters of the error text. Run as a background service (below), these lines go to `~/Library/Logs/startup-cache-proxy.log`. For debugging, `LOG=1` writes every request and response in full to `$STARTUP_CACHE_PROXY_STATE/logs` (default `~/.local/state/startup-cache-proxy`), readable only by you. These logs grow by megabytes per session and contain your conversations, so turn it off when done and delete them.
 
+To keep only what's needed to report a bug, `DUMP_ERRORS=1` saves just the newest request the proxy failed on (`failed.json`) or didn't recognise (`unrecognised.json`), in the same folder and also readable only by you. The background service reads such settings from `~/.config/startup-cache-proxy/env`, a zsh file of `VAR=value` lines that it sources.
+
 To add the mod: `claude --plugin-dir mod/stable-mcp-listing`, or put the mod folder's full path in `CLAUDE_CODE_PLUGIN_DIRS` in the same `env` block (after `./deploy`: `~/.local/share/startup-cache-proxy/mod/stable-mcp-listing`). The mod saves the tool list of the last complete start in `~/.claude/plugins/store/stable-mcp-listing_*.json`; delete that file to reset it.
 
 ### Run in the background (macOS)

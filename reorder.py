@@ -6,6 +6,8 @@ Run: [REORDER=1] [LOG=1] mitmdump -q --mode reverse:https://api.anthropic.com --
 Then start claude with ENABLE_TOOL_SEARCH=true ANTHROPIC_BASE_URL=http://localhost:8080.
 Runtime data (logs) lives in $STARTUP_CACHE_PROXY_STATE, default ~/.local/state/startup-cache-proxy.
 With LOG=1 each call is written to $STARTUP_CACHE_PROXY_STATE/logs/<time>-<n>.req.json (as sent) and .resp.txt.
+With DUMP_ERRORS=1 (implied by LOG=1) only a request the proxy failed on or did
+not recognise is saved, as failed.json or unrecognised.json, the newest of each.
 """
 import itertools
 import json
@@ -159,6 +161,23 @@ def warn(text):
     subprocess.Popen(["osascript", "-e", "on run argv", "-e", 'display notification (item 1 of argv) with title "startup-cache-proxy"', "-e", "end run", text])
 
 
+def dump(name, data):
+    """With DUMP_ERRORS=1 or LOG=1, write a request to the state dir, owner-only
+    even if the file already existed. A failed write is logged, not raised."""
+    if not (os.environ.get("DUMP_ERRORS") or os.environ.get("LOG")):
+        return
+    try:
+        STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # O_NOFOLLOW: never write through a symlink. fchmod: an existing
+        # file keeps its old mode otherwise.
+        fd = os.open(STATE / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            os.fchmod(fd, 0o600)
+            f.write(data)
+    except OSError as e:
+        log(f"could not write {name}: {e!r}")
+
+
 def request(flow):
     if not is_messages(flow) or not os.environ.get("REORDER"):
         return
@@ -168,9 +187,8 @@ def request(flow):
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)[-1]
         log(f"REORDER: failed ({e!r} at line {tb.lineno}: {tb.line}), sent unchanged")
-        if os.environ.get("LOG"):
-            # The request as received, to reproduce the failure offline.
-            (STATE / "failed.json").write_bytes(flow.request.content)
+        # The request as received, to reproduce the failure offline.
+        dump("failed.json", flow.request.content)
         warn("The cache proxy hit an error and sent a request unchanged. Sessions work, but new sessions may not reuse the cache.")
         return
     if done:
@@ -180,8 +198,7 @@ def request(flow):
     # no agent list, so it is passed on quietly.
     elif len(body.get("messages", [])) >= 2 and body["messages"][1].get("role") == "system" and all(h in json.dumps(body["messages"][1]) for h in STABLE):
         log("REORDER: layout not recognised, sent unchanged")
-        if os.environ.get("LOG"):
-            (STATE / "unrecognised.json").write_bytes(flow.request.content)
+        dump("unrecognised.json", flow.request.content)
         warn("Claude Code's startup layout changed, so the cache proxy sent it unchanged. Sessions work, but new sessions don't reuse the cache.")
 
 
